@@ -14,5 +14,9 @@ Other dependencies are standard Flutter packages for UI and navigation.
 Contributing:
 Contributions are welcome! Please open an issue or submit a pull request with any improvements or bug fixes.
 
+# Pictures
+![Screenshot_1712144342](https://github.com/Totocsy/Bus_tracking-Flutter-app/assets/122917702/fb589dfa-0100-49e9-9e22-dd1352d134ca)
+
+
 # License:
 This project is licensed under the MIT License. See the LICENSE file for details.
