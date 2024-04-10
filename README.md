@@ -1,16 +1,18 @@
-# bus_tracking
+# Bus Tracking App
+# This is a Flutter application for bus tracking using Google Maps.
 
-A new Flutter project.
+# Features:
+Real-time tracking of buses on Google Maps.
+Estimated arrival time calculation based on current speed and distance to destination.
+Custom markers for bus, starting point, destination, and user's current location.
 
-## Getting Started
+# Dependencies:
+flutter_polyline_points: For fetching polyline points between starting point and destination.
+google_maps_flutter: For displaying Google Maps.
+location: For retrieving user's current location.
+Other dependencies are standard Flutter packages for UI and navigation.
+Contributing:
+Contributions are welcome! Please open an issue or submit a pull request with any improvements or bug fixes.
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+# License:
+This project is licensed under the MIT License. See the LICENSE file for details.
