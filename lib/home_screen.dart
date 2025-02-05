@@ -1,66 +1,129 @@
+import 'dart:convert';
 import 'dart:async';
-import 'dart:math' show cos, sqrt, asin;
-import 'package:bus_tracking/sellect_screen.dart';
+import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_polyline_points/flutter_polyline_points.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart';
+import 'sellect_screen.dart';
 
 class HomrScreen extends StatefulWidget {
-  const HomrScreen({Key? key}) : super(key: key);
+  final double destinationLat;
+  final double destinationLng;
+  final String route;
+  final String busNumber;
+
+  const HomrScreen({
+    Key? key,
+    required this.destinationLat,
+    required this.destinationLng,
+    required this.route,
+    required this.busNumber,
+  }) : super(key: key);
 
   @override
   State<HomrScreen> createState() => _HomrScreenState();
 }
 
-final Completer<GoogleMapController> _controller = Completer();
-String mapTheme = "";
-const String apiKey = 'YOUR_API_KEY';
-const double startAddresslat = 46.523310;
-const double startAddresslng = 24.543450;
-const double destinationAddresslat = 46.559942;
-const double destinationAddresslng = 24.581594;
-const double mylocationlat = 46.546622;
-const double mylocationlng = 24.569379;
-const double averageBusSpeedKmph = 10.0;
-
 class _HomrScreenState extends State<HomrScreen> {
   List<LatLng> polylineCoordinates = [];
   LocationData? currentLocation;
-  late GoogleMapController _googleMapController;
-  BitmapDescriptor busIcon = BitmapDescriptor.defaultMarker;
-  BitmapDescriptor destinationIcon = BitmapDescriptor.defaultMarker;
-  BitmapDescriptor myLocationIcon = BitmapDescriptor.defaultMarker;
+  MapController mapController = MapController();
   double? estimatedArrivalTime;
   double? currentSpeed;
   bool followBus = false;
 
+  late double destinationLat;
+  late double destinationLng;
+
+  int _currentBusPositionIndex = 0;
+  List<List<double>> _busRouteCoordinates = [];
+
+  static const double averageBusSpeedKmph = 52.1;
+
   @override
   void initState() {
     super.initState();
+    destinationLat = widget.destinationLat;
+    destinationLng = widget.destinationLng;
     getCurrentLocation();
-    getPolypoints();
-    setCustomMarkerIcon();
-    DefaultAssetBundle.of(context)
-        .loadString('assets/maptheme.json')
-        .then((themeValue) {
-      mapTheme = themeValue;
+    loadBusRouteCoordinates();
+    _startBusMovement();
+  }
+
+  Future<void> loadBusRouteCoordinates() async {
+    String jsonString = await rootBundle.loadString('assets/${widget.route}');
+    Map<String, dynamic> jsonResponse = jsonDecode(jsonString);
+    List<dynamic> busRouteList = jsonResponse['busRoute'];
+
+    setState(() {
+      _busRouteCoordinates = busRouteList
+          .map((route) => [route[0] as double, route[1] as double])
+          .toList();
+
+      polylineCoordinates = _busRouteCoordinates
+          .map((coord) => LatLng(coord[0], coord[1]))
+          .toList();
     });
   }
 
-  @override
-  void dispose() {
-    _googleMapController.dispose();
-    super.dispose();
+  double calculateDistance(double startLatitude, double startLongitude,
+      double endLatitude, double endLongitude) {
+    const double earthRadius = 6371;
+    final double dLat = _degreesToRadians(endLatitude - startLatitude);
+    final double dLon = _degreesToRadians(endLongitude - startLongitude);
+    final double a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(_degreesToRadians(startLatitude)) *
+            cos(_degreesToRadians(endLatitude)) *
+            sin(dLon / 2) *
+            sin(dLon / 2);
+    final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return earthRadius * c;
   }
 
-  void setCustomMarkerIcon() async {
-    busIcon = await BitmapDescriptor.fromAssetImage(
-        ImageConfiguration.empty, "assets/bus.png");
-    destinationIcon = await BitmapDescriptor.fromAssetImage(
-        ImageConfiguration.empty, "assets/destination.png");
-    myLocationIcon = await BitmapDescriptor.fromAssetImage(
-        ImageConfiguration.empty, "assets/mylocation.png");
+  double _degreesToRadians(double degrees) {
+    return degrees * (pi / 180);
+  }
+
+  double calculateEstimatedArrivalTime() {
+    if (_busRouteCoordinates.isEmpty) return 0.0;
+
+    double remainingRouteDistance = 0.0;
+    for (int i = _currentBusPositionIndex;
+        i < _busRouteCoordinates.length - 1;
+        i++) {
+      remainingRouteDistance += calculateDistance(
+          _busRouteCoordinates[i][0],
+          _busRouteCoordinates[i][1],
+          _busRouteCoordinates[i + 1][0],
+          _busRouteCoordinates[i + 1][1]);
+    }
+
+    double estimatedTimeInMinutes =
+        (remainingRouteDistance / averageBusSpeedKmph) * 60 * 1.1;
+
+    return estimatedTimeInMinutes;
+  }
+
+  double _calculateAverageBusSpeed() {
+    if (_busRouteCoordinates.isEmpty || _currentBusPositionIndex < 1) {
+      return averageBusSpeedKmph;
+    }
+
+    double distance = calculateDistance(
+        _busRouteCoordinates[_currentBusPositionIndex - 1][0],
+        _busRouteCoordinates[_currentBusPositionIndex - 1][1],
+        _busRouteCoordinates[_currentBusPositionIndex][0],
+        _busRouteCoordinates[_currentBusPositionIndex][1]);
+
+    double speedKmph = (distance * 3600);
+
+    if (speedKmph > 80 || speedKmph < 0) {
+      return averageBusSpeedKmph;
+    }
+
+    return speedKmph;
   }
 
   void getCurrentLocation() async {
@@ -70,127 +133,125 @@ class _HomrScreenState extends State<HomrScreen> {
       setState(() {});
     });
 
-    _googleMapController = await _controller.future;
-
     location.onLocationChanged.listen((newLoc) {
       currentLocation = newLoc;
-      if (followBus) {
-        _googleMapController.animateCamera(CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: LatLng(newLoc.latitude!, newLoc.longitude!),
-            zoom: 16,
+      if (followBus && _busRouteCoordinates.isNotEmpty) {
+        mapController.move(
+          LatLng(
+            _busRouteCoordinates[_currentBusPositionIndex][0],
+            _busRouteCoordinates[_currentBusPositionIndex][1],
           ),
-        ));
+          16,
+        );
       }
 
       setState(() {
-        estimatedArrivalTime = calculateEstimatedArrivalTime(
-            currentLocation!.latitude!,
-            currentLocation!.longitude!,
-            currentLocation!.speed);
-        currentSpeed = (currentLocation!.speed! * 2);
+        estimatedArrivalTime = calculateEstimatedArrivalTime();
+        currentSpeed = _calculateAverageBusSpeed();
       });
     });
   }
 
-  double calculateDistance(double startLatitude, double startLongitude,
-      double endLatitude, double endLongitude) {
-    const double p = 0.017453292519943295;
-    double a = 0.5 -
-        cos((endLatitude - startLatitude) * p) / 2 +
-        cos(startLatitude * p) *
-            cos(endLatitude * p) *
-            (1 - cos((endLongitude - startLongitude) * p)) /
-            2;
-    return 12742 * asin(sqrt(a));
-  }
-
-  double calculateEstimatedArrivalTime(
-      double currentLatitude, double currentLongitude, double? currentSpeed) {
-    double distanceToDestination = calculateDistance(
-        currentLatitude, currentLongitude, mylocationlat, mylocationlng);
-    double estimatedTime = (distanceToDestination / averageBusSpeedKmph) * 60;
-    return estimatedTime;
-  }
-
-  void getPolypoints() async {
-    PolylinePoints polylinePoints = PolylinePoints();
-    PolylineResult polylineResult =
-        await polylinePoints.getRouteBetweenCoordinates(
-            apiKey,
-            const PointLatLng(startAddresslat, startAddresslng),
-            const PointLatLng(destinationAddresslat, destinationAddresslng));
-
-    if (polylineResult.points.isNotEmpty) {
-      polylineResult.points.forEach((PointLatLng point) =>
-          polylineCoordinates.add(LatLng(point.latitude, point.longitude)));
-      setState(() {});
-    }
+  void _startBusMovement() {
+    Timer.periodic(Duration(milliseconds: 2000), (timer) {
+      if (_busRouteCoordinates.isNotEmpty) {
+        setState(() {
+          if (_currentBusPositionIndex < _busRouteCoordinates.length - 1) {
+            _currentBusPositionIndex++;
+          } else {
+            _currentBusPositionIndex = 0;
+          }
+        });
+      } else {
+        timer.cancel();
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: const CameraPosition(
-              target: LatLng(46.54245, 24.55747),
-              zoom: 14.0,
+          FlutterMap(
+            mapController: mapController,
+            options: MapOptions(
+              initialCenter: LatLng(46.54245, 24.55747),
+              initialZoom: 14.0,
             ),
-            polylines: {
-              Polyline(
-                polylineId: const PolylineId('Utvonal'),
-                points: polylineCoordinates,
-                color: Color.fromARGB(255, 27, 126, 32),
-                width: 6,
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                subdomains: ['a', 'b', 'c'],
               ),
-            },
-            markers: {
-              if (currentLocation != null)
-                Marker(
-                  markerId: const MarkerId('Busz'),
-                  icon: busIcon,
-                  position: LatLng(
-                      currentLocation!.latitude!, currentLocation!.longitude!),
-                  onTap: () {
-                    setState(() {
-                      followBus = !followBus;
-                    });
-                  },
-                ),
-              Marker(
-                markerId: const MarkerId('Indulas'),
-                icon: destinationIcon,
-                position: const LatLng(startAddresslat, startAddresslng),
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: polylineCoordinates,
+                    color: Colors.green.shade400, // Darker green color
+                    strokeWidth: 6,
+                  ),
+                ],
               ),
-              Marker(
-                markerId: const MarkerId('MyLocation'),
-                icon: myLocationIcon,
-                position: const LatLng(mylocationlat, mylocationlng),
+              MarkerLayer(
+                markers: [
+                  if (_busRouteCoordinates.isNotEmpty)
+                    Marker(
+                      point: LatLng(
+                        _busRouteCoordinates[_currentBusPositionIndex][0],
+                        _busRouteCoordinates[_currentBusPositionIndex][1],
+                      ),
+                      width: 40,
+                      height: 40,
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            followBus = !followBus;
+                          });
+                        },
+                        child: Image.asset('assets/bus.png'),
+                      ),
+                    ),
+                  if (currentLocation != null)
+                    Marker(
+                      point: LatLng(
+                        currentLocation!.latitude!,
+                        currentLocation!.longitude!,
+                      ),
+                      width: 40,
+                      height: 40,
+                      child: Image.asset('assets/mylocation.png'),
+                    ),
+                  Marker(
+                    point: LatLng(destinationLat, destinationLng),
+                    width: 40,
+                    height: 40,
+                    child: Image.asset('assets/destination.png'),
+                  ),
+                ],
               ),
-              Marker(
-                markerId: const MarkerId('Vegallomas'),
-                icon: destinationIcon,
-                position:
-                    const LatLng(destinationAddresslat, destinationAddresslng),
-              ),
-            },
-            onMapCreated: (GoogleMapController controller) {
-              controller.setMapStyle(mapTheme);
-              _controller.complete(controller);
-            },
+            ],
           ),
+          // UI Elements with dark theme adjustments
           Positioned(
-            top: 30,
-            left: 95,
-            child: Center(
+            top: size.height * 0.03,
+            left: size.width * 0.25,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   IconButton(
                     onPressed: () {
-                      Navigator.push(
+                      Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
                             builder: (context) => const SellectScreen()),
@@ -225,7 +286,7 @@ class _HomrScreenState extends State<HomrScreen> {
                   Switch(
                     inactiveThumbColor: Colors.white,
                     inactiveTrackColor: Colors.white10,
-                    activeTrackColor: Colors.lightGreenAccent,
+                    activeTrackColor: Colors.greenAccent,
                     activeColor: Colors.green,
                     value: followBus,
                     onChanged: (value) {
@@ -239,79 +300,75 @@ class _HomrScreenState extends State<HomrScreen> {
             ),
           ),
           Positioned(
-            top: 745,
-            left: 8,
+            top: size.height * 0.89,
+            left: size.width * 0.02,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Stack(
-                  children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black,
-                            blurRadius: 5,
-                          ),
-                        ],
-                        color: Color.fromRGBO(37, 150, 190, 170.0),
-                        borderRadius: BorderRadius.circular(8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black87,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.greenAccent.withOpacity(0.3),
+                        blurRadius: 10,
+                        offset: Offset(0, 5),
                       ),
-                      height: 90,
-                      width: 395,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (estimatedArrivalTime != null)
-                            Padding(
-                              padding:
-                                  const EdgeInsets.only(right: 90.0, top: 20),
-                              child: Text(
-                                'Varhato erkezesi ido : ${estimatedArrivalTime!.toStringAsFixed(0)} perc',
-                                style: const TextStyle(
-                                  shadows: <Shadow>[
-                                    Shadow(
-                                      offset: Offset(2.0, 2.0),
-                                      blurRadius: 20.0,
-                                      color: Color.fromARGB(255, 82, 74, 74),
-                                    ),
-                                  ],
-                                  fontSize: 19,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                    ],
+                  ),
+                  height: size.height * 0.1,
+                  width: size.width * 0.95,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (estimatedArrivalTime != null)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 90.0, top: 10),
+                          child: Text(
+                            'Estimated Arrival time: ${estimatedArrivalTime!.toStringAsFixed(0)} min',
+                            style: TextStyle(
+                              shadows: <Shadow>[
+                                Shadow(
+                                  offset: Offset(2.0, 2.0),
+                                  blurRadius: 10.0,
+                                  color: Colors.greenAccent.withOpacity(0.3),
                                 ),
-                              ),
+                              ],
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
                             ),
-                          if (currentSpeed != null)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 150.0),
-                              child: Text(
-                                'Busz sebesseg: ${currentSpeed!.toStringAsFixed(2)} km/h',
-                                style: const TextStyle(
-                                  shadows: <Shadow>[
-                                    Shadow(
-                                      offset: Offset(2.0, 2.0),
-                                      blurRadius: 20.0,
-                                      color: Color.fromARGB(255, 82, 74, 74),
-                                    ),
-                                  ],
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                          ),
+                        ),
+                      if (currentSpeed != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 150.0, top: 5),
+                          child: Text(
+                            'Bus Speed: ${currentSpeed!.toStringAsFixed(2)} km/h',
+                            style: TextStyle(
+                              shadows: <Shadow>[
+                                Shadow(
+                                  offset: Offset(2.0, 2.0),
+                                  blurRadius: 10.0,
+                                  color: Colors.greenAccent.withOpacity(0.3),
                                 ),
-                              ),
-                            )
-                        ],
-                      ),
-                    ),
-                  ],
+                              ],
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
           Positioned(
-            top: 660,
-            left: 190,
+            top: size.height * 0.81,
+            left: size.width * 0.5 - 5,
             right: 0,
             child: Container(
               decoration: const BoxDecoration(
@@ -320,32 +377,44 @@ class _HomrScreenState extends State<HomrScreen> {
                   fit: BoxFit.scaleDown,
                 ),
               ),
-              height: 150,
+              height: size.height * 0.15,
             ),
           ),
           Positioned(
-            top: 685,
+            top: size.height * 0.83,
             left: 0,
-            right: 280,
+            right: size.width * 0.70,
             child: Container(
-              decoration: const BoxDecoration(
-                image: DecorationImage(
-                  image: AssetImage('assets/23.png'),
-                  fit: BoxFit.scaleDown,
+              height: size.height * 0.1,
+              child: Center(
+                child: Text(
+                  widget.busNumber,
+                  style: const TextStyle(
+                    fontSize: 60,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(2.0, 2.0),
+                        blurRadius: 10.0,
+                        color: Colors.black,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              height: 100,
             ),
           ),
           Positioned(
-            top: 650,
-            right: 330,
+            top: size.height * 0.80,
+            right: size.width * 0.95,
             left: 0,
             child: IconButton(
               icon: Icon(Icons.zoom_out, color: Colors.white, size: 30),
               onPressed: () {
-                _googleMapController.animateCamera(
-                  CameraUpdate.zoomOut(),
+                mapController.move(
+                  mapController.camera.center,
+                  mapController.camera.zoom - 1,
                 );
               },
             ),
