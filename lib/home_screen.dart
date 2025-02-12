@@ -129,12 +129,22 @@ class _HomrScreenState extends State<HomrScreen> {
   void getCurrentLocation() async {
     Location location = Location();
     location.getLocation().then((location) {
-      currentLocation = location;
-      setState(() {});
+      if (mounted) {
+        setState(() {
+          currentLocation = location;
+        });
+      }
     });
 
     location.onLocationChanged.listen((newLoc) {
-      currentLocation = newLoc;
+      if (mounted) {
+        setState(() {
+          currentLocation = newLoc;
+          estimatedArrivalTime = calculateEstimatedArrivalTime();
+          currentSpeed = _calculateAverageBusSpeed();
+        });
+      }
+
       if (followBus && _busRouteCoordinates.isNotEmpty) {
         mapController.move(
           LatLng(
@@ -144,20 +154,18 @@ class _HomrScreenState extends State<HomrScreen> {
           16,
         );
       }
-
-      setState(() {
-        estimatedArrivalTime = calculateEstimatedArrivalTime();
-        currentSpeed = _calculateAverageBusSpeed();
-      });
     });
   }
 
+  late Timer _busMovementTimer;
+
   void _startBusMovement() {
-    Timer.periodic(Duration(milliseconds: 2000), (timer) {
+    _busMovementTimer = Timer.periodic(Duration(milliseconds: 2000), (timer) {
       if (_busRouteCoordinates.isNotEmpty) {
         setState(() {
           if (_currentBusPositionIndex < _busRouteCoordinates.length - 1) {
             _currentBusPositionIndex++;
+            updateBusPosition();
           } else {
             _currentBusPositionIndex = 0;
           }
@@ -166,6 +174,24 @@ class _HomrScreenState extends State<HomrScreen> {
         timer.cancel();
       }
     });
+  }
+
+  void updateBusPosition() {
+    if (followBus && _busRouteCoordinates.isNotEmpty) {
+      mapController.move(
+        LatLng(
+          _busRouteCoordinates[_currentBusPositionIndex][0],
+          _busRouteCoordinates[_currentBusPositionIndex][1],
+        ),
+        mapController.zoom,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _busMovementTimer.cancel();
+    super.dispose();
   }
 
   @override
@@ -185,14 +211,14 @@ class _HomrScreenState extends State<HomrScreen> {
             children: [
               TileLayer(
                 urlTemplate:
-                    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
                 subdomains: ['a', 'b', 'c'],
               ),
               PolylineLayer(
                 polylines: [
                   Polyline(
                     points: polylineCoordinates,
-                    color: Colors.green.shade400, // Darker green color
+                    color: Color.fromARGB(255, 42, 128, 46),
                     strokeWidth: 6,
                   ),
                 ],
@@ -205,8 +231,8 @@ class _HomrScreenState extends State<HomrScreen> {
                         _busRouteCoordinates[_currentBusPositionIndex][0],
                         _busRouteCoordinates[_currentBusPositionIndex][1],
                       ),
-                      width: 40,
-                      height: 40,
+                      width: 60,
+                      height: 60,
                       child: GestureDetector(
                         onTap: () {
                           setState(() {
@@ -236,18 +262,18 @@ class _HomrScreenState extends State<HomrScreen> {
               ),
             ],
           ),
-          // UI Elements with dark theme adjustments
           Positioned(
-            top: size.height * 0.03,
-            left: size.width * 0.25,
+            top: size.height * 0.05,
+            left: size.width * 0.08,
+            right: size.width * 0.08,
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 7),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
+                color: Color.fromARGB(255, 49, 49, 49).withOpacity(0.7),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
                     onPressed: () {
@@ -270,7 +296,7 @@ class _HomrScreenState extends State<HomrScreen> {
                       ],
                     ),
                   ),
-                  const Text('Bus Tracking',
+                  const Text('  Bus Tracking',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 20,
@@ -307,11 +333,12 @@ class _HomrScreenState extends State<HomrScreen> {
               children: [
                 Container(
                   decoration: BoxDecoration(
-                    color: Colors.black87,
+                    color: Color.fromARGB(255, 49, 49, 49).withOpacity(0.7),
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.greenAccent.withOpacity(0.3),
+                        color: const Color.fromARGB(255, 94, 94, 94)
+                            .withOpacity(0.3),
                         blurRadius: 10,
                         offset: Offset(0, 5),
                       ),
@@ -406,8 +433,8 @@ class _HomrScreenState extends State<HomrScreen> {
             ),
           ),
           Positioned(
-            top: size.height * 0.80,
-            right: size.width * 0.95,
+            bottom: size.height * 0.16,
+            right: size.width * 0.86,
             left: 0,
             child: IconButton(
               icon: Icon(Icons.zoom_out, color: Colors.white, size: 30),

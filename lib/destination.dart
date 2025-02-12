@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart';
 import 'home_screen.dart';
 import 'sellect_screen.dart';
@@ -14,12 +15,9 @@ class PickDestinationScreen extends StatefulWidget {
 class _PickDestinationScreenState extends State<PickDestinationScreen> {
   LatLng? _pickedLocation;
   LatLng? _userLocation;
-  GoogleMapController? _mapController;
-  String? _mapTheme;
-  BitmapDescriptor? _customMarker;
-  Set<Marker> _markers = Set();
-  Set<Polyline> _polylines = Set();
+  MapController _mapController = MapController();
   String? _selectedRoute;
+  List<Polyline> _polylines = [];
 
   final Map<String, List<LatLng>> _busRoutes = {
     'routes_23.json': [],
@@ -31,9 +29,7 @@ class _PickDestinationScreenState extends State<PickDestinationScreen> {
   @override
   void initState() {
     super.initState();
-    _loadMapTheme();
     _loadBusRoutes();
-    _loadCustomMarker();
     _getUserLocation();
   }
 
@@ -161,23 +157,6 @@ class _PickDestinationScreenState extends State<PickDestinationScreen> {
     );
   }
 
-  Future<void> _loadCustomMarker() async {
-    final marker = await BitmapDescriptor.fromAssetImage(
-      const ImageConfiguration(size: Size(20, 20)),
-      'assets/mylocation.png',
-    );
-    setState(() {
-      _customMarker = marker;
-    });
-  }
-
-  Future<void> _loadMapTheme() async {
-    final themeValue = await rootBundle.loadString('assets/maptheme.json');
-    setState(() {
-      _mapTheme = themeValue;
-    });
-  }
-
   Future<void> _loadBusRoutes() async {
     for (var routeFile in _busRoutes.keys) {
       try {
@@ -210,28 +189,13 @@ class _PickDestinationScreenState extends State<PickDestinationScreen> {
         _userLocation = LatLng(userLocation.latitude!, userLocation.longitude!);
       });
 
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLng(_userLocation!),
-      );
+      _mapController.move(_userLocation!, 13);
     } catch (e) {
       print('Error getting user location: $e');
     }
   }
 
-  void _onMapCreated(GoogleMapController controller) {
-    _mapController = controller;
-    if (_mapTheme != null) {
-      _mapController?.setMapStyle(_mapTheme);
-    }
-
-    if (_userLocation != null) {
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLng(_userLocation!),
-      );
-    }
-  }
-
-  void _onTap(LatLng location) {
+  void _onTap(TapPosition tapPosition, LatLng location) {
     setState(() {
       _pickedLocation = location;
     });
@@ -275,27 +239,15 @@ class _PickDestinationScreenState extends State<PickDestinationScreen> {
   void _drawSelectedRoute(String route) {
     final routePoints = _busRoutes[route];
     if (routePoints != null) {
-      _markers.clear();
-      _polylines.clear();
-
-      _polylines.add(Polyline(
-        polylineId: PolylineId(route),
-        visible: true,
-        points: routePoints,
-        color: Colors.green,
-        width: 5,
-      ));
-
-      _markers.addAll(routePoints.map((point) {
-        return Marker(
-          markerId: MarkerId('marker_${route}_$point'),
-          position: point,
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        );
-      }));
-
-      setState(() {});
+      setState(() {
+        _polylines = [
+          Polyline(
+            points: routePoints,
+            color: Colors.green,
+            strokeWidth: 5,
+          ),
+        ];
+      });
     }
   }
 
@@ -334,113 +286,97 @@ class _PickDestinationScreenState extends State<PickDestinationScreen> {
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
-    final topPadding = MediaQuery.of(context).padding.top;
 
     return Scaffold(
       body: Stack(
         children: [
-          GoogleMap(
-            onMapCreated: _onMapCreated,
-            initialCameraPosition: const CameraPosition(
-              target: LatLng(46.54245, 24.55747),
-              zoom: 13.0,
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: LatLng(46.54245, 24.55747),
+              initialZoom: 13.0,
+              onTap: _onTap,
             ),
-            onTap: _onTap,
-            markers: {
-              if (_pickedLocation != null)
-                Marker(
-                  markerId: const MarkerId('pickedLocation'),
-                  position: _pickedLocation!,
-                ),
-              if (_userLocation != null)
-                Marker(
-                  markerId: const MarkerId('userLocation'),
-                  position: _userLocation!,
-                  icon: _customMarker ?? BitmapDescriptor.defaultMarker,
-                ),
-            },
-            polylines: _selectedRoute != null
-                ? {
-                    Polyline(
-                      polylineId: PolylineId(_selectedRoute!),
-                      visible: true,
-                      points: _busRoutes[_selectedRoute!]!,
-                      color: Color.fromARGB(255, 44, 160, 48),
-                      width: 7,
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+                subdomains: ['a', 'b', 'c'],
+              ),
+              PolylineLayer(
+                polylines: _polylines,
+              ),
+              MarkerLayer(
+                markers: [
+                  if (_pickedLocation != null)
+                    Marker(
+                      point: _pickedLocation!,
+                      width: 40,
+                      height: 40,
+                      child: Icon(Icons.location_pin,
+                          color: Colors.green, size: 40),
                     ),
-                  }
-                : {},
+                  if (_userLocation != null)
+                    Marker(
+                      point: _userLocation!,
+                      width: 40,
+                      height: 40,
+                      child: Image.asset('assets/mylocation.png'),
+                    ),
+                ],
+              ),
+            ],
           ),
           Positioned(
-            top: topPadding,
-            left: screenSize.width * 0.16,
-            child: IconButton(
-              icon: const Icon(
-                Icons.arrow_back_ios_new,
-                color: Colors.white,
-                shadows: [
-                  Shadow(
-                    offset: Offset(4.0, 4.0),
-                    blurRadius: 15.0,
-                    color: Colors.black,
+            top: screenSize.height * 0.05,
+            left: screenSize.width * 0.08,
+            right: screenSize.width * 0.08,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Color.fromARGB(255, 49, 49, 49).withOpacity(0.7),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => const SellectScreen()),
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const Text(
+                    'Select the destination',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.check,
+                      color: Colors.white,
+                    ),
+                    onPressed: _confirmDestination,
                   ),
                 ],
               ),
-              onPressed: () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => SellectScreen(),
-                  ),
-                );
-              },
             ),
           ),
           Positioned(
-            top: topPadding,
-            right: screenSize.width * 0.16,
-            child: IconButton(
-              icon: const Icon(
-                Icons.check,
-                color: Colors.white,
-                shadows: [
-                  Shadow(
-                    offset: Offset(4.0, 4.0),
-                    blurRadius: 15.0,
-                    color: Colors.black,
-                  ),
-                ],
-              ),
-              onPressed: _confirmDestination,
-            ),
-          ),
-          Positioned(
-            top: topPadding + 10,
-            left: screenSize.width * 0.1,
-            right: screenSize.width * 0.1,
-            child: const Center(
-              child: Text(
-                'Select the destination',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  shadows: [
-                    Shadow(
-                      offset: Offset(4.0, 4.0),
-                      blurRadius: 15.0,
-                      color: Colors.black,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 10,
+            bottom: 15,
             right: screenSize.width * 0.5 - 28,
             child: FloatingActionButton(
-              backgroundColor: const Color.fromARGB(255, 43, 42, 42),
+              backgroundColor: Color.fromARGB(255, 49, 49, 49).withOpacity(0.7),
               onPressed: _showBusRouteBottomSheet,
               child: const Icon(Icons.directions_bus, color: Colors.white),
             ),
