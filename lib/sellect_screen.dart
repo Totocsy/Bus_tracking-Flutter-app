@@ -71,7 +71,6 @@ class _SellectScreenState extends State<SellectScreen>
           SafeArea(
             child: Column(
               children: [
-                // Header and weather section
                 Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal: screenWidth * 0.05,
@@ -139,8 +138,6 @@ class _SellectScreenState extends State<SellectScreen>
                     ],
                   ),
                 ),
-
-                // Destination button
                 Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal: screenWidth * 0.05,
@@ -159,8 +156,6 @@ class _SellectScreenState extends State<SellectScreen>
                     screenWidth,
                   ),
                 ),
-
-                // Available Routes section with fade effect
                 Container(
                   height: screenHeight * 0.5,
                   child: ShaderMask(
@@ -252,8 +247,6 @@ class _SellectScreenState extends State<SellectScreen>
                     ),
                   ),
                 ),
-
-                // Lottie animation with fade effect
                 Expanded(
                   child: ShaderMask(
                     shaderCallback: (Rect bounds) {
