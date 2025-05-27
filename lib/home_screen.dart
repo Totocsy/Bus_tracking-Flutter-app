@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart';
+import 'package:http/http.dart' as http;
 import 'sellect_screen.dart';
 
 class HomrScreen extends StatefulWidget {
@@ -33,12 +33,15 @@ class _HomrScreenState extends State<HomrScreen> {
   double? estimatedArrivalTime;
   double? currentSpeed;
   bool followBus = false;
+  bool _isConnected = false;
 
   late double destinationLat;
   late double destinationLng;
 
-  int _currentBusPositionIndex = 0;
-  List<List<double>> _busRouteCoordinates = [];
+  LatLng _busPosition = LatLng(46.54245, 24.55747); // Default position
+  StreamSubscription? _streamSubscription;
+  final String serverUrl = "https://bus-api-7ph1.onrender.com";
+  DateTime? _lastUpdateTime;
 
   static const double averageBusSpeedKmph = 52.1;
 
@@ -48,24 +51,7 @@ class _HomrScreenState extends State<HomrScreen> {
     destinationLat = widget.destinationLat;
     destinationLng = widget.destinationLng;
     getCurrentLocation();
-    loadBusRouteCoordinates();
-    _startBusMovement();
-  }
-
-  Future<void> loadBusRouteCoordinates() async {
-    String jsonString = await rootBundle.loadString('assets/${widget.route}');
-    Map<String, dynamic> jsonResponse = jsonDecode(jsonString);
-    List<dynamic> busRouteList = jsonResponse['busRoute'];
-
-    setState(() {
-      _busRouteCoordinates = busRouteList
-          .map((route) => [route[0] as double, route[1] as double])
-          .toList();
-
-      polylineCoordinates = _busRouteCoordinates
-          .map((coord) => LatLng(coord[0], coord[1]))
-          .toList();
-    });
+    _startTrackingBus();
   }
 
   double calculateDistance(double startLatitude, double startLongitude,
@@ -87,43 +73,57 @@ class _HomrScreenState extends State<HomrScreen> {
   }
 
   double calculateEstimatedArrivalTime() {
-    if (_busRouteCoordinates.isEmpty) return 0.0;
+    if (polylineCoordinates.isEmpty) return 0.0;
 
-    double remainingRouteDistance = 0.0;
-    for (int i = _currentBusPositionIndex;
-        i < _busRouteCoordinates.length - 1;
-        i++) {
-      remainingRouteDistance += calculateDistance(
-          _busRouteCoordinates[i][0],
-          _busRouteCoordinates[i][1],
-          _busRouteCoordinates[i + 1][0],
-          _busRouteCoordinates[i + 1][1]);
-    }
+    // Calculate straight-line distance to destination
+    double distanceToDestination = calculateDistance(
+        _busPosition.latitude,
+        _busPosition.longitude,
+        currentLocation!.latitude!,
+        currentLocation!.longitude!);
 
+    // Estimate time based on average speed
     double estimatedTimeInMinutes =
-        (remainingRouteDistance / averageBusSpeedKmph) * 60 * 1.1;
+        (distanceToDestination / averageBusSpeedKmph) * 60 * 1;
 
     return estimatedTimeInMinutes;
   }
 
   double _calculateAverageBusSpeed() {
-    if (_busRouteCoordinates.isEmpty || _currentBusPositionIndex < 1) {
+    if (_lastUpdateTime == null || polylineCoordinates.length < 2) {
       return averageBusSpeedKmph;
     }
 
-    double distance = calculateDistance(
-        _busRouteCoordinates[_currentBusPositionIndex - 1][0],
-        _busRouteCoordinates[_currentBusPositionIndex - 1][1],
-        _busRouteCoordinates[_currentBusPositionIndex][0],
-        _busRouteCoordinates[_currentBusPositionIndex][1]);
+    // Calculate speed based on last two positions if available
+    if (polylineCoordinates.length >= 2) {
+      LatLng prevPosition = polylineCoordinates[polylineCoordinates.length - 2];
+      LatLng currentPosition =
+          polylineCoordinates[polylineCoordinates.length - 1];
 
-    double speedKmph = (distance * 3600);
+      double distance = calculateDistance(
+          prevPosition.latitude,
+          prevPosition.longitude,
+          currentPosition.latitude,
+          currentPosition.longitude);
 
-    if (speedKmph > 80 || speedKmph < 0) {
-      return averageBusSpeedKmph;
+      // Calculate time difference
+      DateTime now = DateTime.now();
+      double timeDiffInHours =
+          now.difference(_lastUpdateTime!).inMilliseconds / (1000 * 60 * 60);
+
+      if (timeDiffInHours > 0) {
+        double speedKmph = distance / timeDiffInHours;
+
+        // Filter unrealistic speeds
+        if (speedKmph > 80 || speedKmph < 0) {
+          return averageBusSpeedKmph;
+        }
+
+        return speedKmph;
+      }
     }
 
-    return speedKmph;
+    return averageBusSpeedKmph;
   }
 
   void getCurrentLocation() async {
@@ -144,53 +144,114 @@ class _HomrScreenState extends State<HomrScreen> {
           currentSpeed = _calculateAverageBusSpeed();
         });
       }
-
-      if (followBus && _busRouteCoordinates.isNotEmpty) {
-        mapController.move(
-          LatLng(
-            _busRouteCoordinates[_currentBusPositionIndex][0],
-            _busRouteCoordinates[_currentBusPositionIndex][1],
-          ),
-          16,
-        );
-      }
     });
   }
 
-  late Timer _busMovementTimer;
+  void _startTrackingBus() async {
+    setState(() {
+      _isConnected = false;
+    });
 
-  void _startBusMovement() {
-    _busMovementTimer = Timer.periodic(Duration(milliseconds: 2000), (timer) {
-      if (_busRouteCoordinates.isNotEmpty) {
-        setState(() {
-          if (_currentBusPositionIndex < _busRouteCoordinates.length - 1) {
-            _currentBusPositionIndex++;
-            updateBusPosition();
-          } else {
-            _currentBusPositionIndex = 0;
+    // Cancel any existing subscription
+    await _streamSubscription?.cancel();
+
+    try {
+      // Create a connection to the SSE endpoint
+      final Uri url = Uri.parse('$serverUrl/bus/${widget.busNumber}/movement');
+      final request = http.Request('GET', url);
+      request.headers['Accept'] = 'text/event-stream';
+      request.headers['Cache-Control'] = 'no-cache';
+
+      final client = http.Client();
+      final streamedResponse = await client.send(request);
+
+      if (streamedResponse.statusCode != 200) {
+        print('Error: Server returned ${streamedResponse.statusCode}');
+        _reconnectAfterDelay();
+        return;
+      }
+
+      setState(() {
+        _isConnected = true;
+      });
+
+      // Process the SSE stream
+      _streamSubscription = streamedResponse.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((String line) {
+        // Process each line from the SSE stream
+        if (line.startsWith('data: ')) {
+          try {
+            // Parse the JSON data
+            final jsonData = json.decode(line.substring(6));
+
+            if (jsonData.containsKey('lat') && jsonData.containsKey('lon')) {
+              final double lat = double.parse(jsonData['lat'].toString());
+              final double lon = double.parse(jsonData['lon'].toString());
+              final newPosition = LatLng(lat, lon);
+
+              setState(() {
+                _busPosition = newPosition;
+                polylineCoordinates.add(newPosition);
+                _lastUpdateTime = DateTime.now();
+
+                // Limit the number of route points to avoid memory issues
+                if (polylineCoordinates.length > 500) {
+                  polylineCoordinates = polylineCoordinates
+                      .sublist(polylineCoordinates.length - 500);
+                }
+
+                // Update arrival time and speed estimates
+                estimatedArrivalTime = calculateEstimatedArrivalTime();
+                currentSpeed = _calculateAverageBusSpeed();
+
+                // Auto-center map if following bus
+                if (followBus) {
+                  // ignore: deprecated_member_use
+                  mapController.move(_busPosition, mapController.zoom);
+                }
+              });
+            }
+          } catch (e) {
+            print('Error parsing SSE data: $e');
           }
+        }
+      }, onError: (error) {
+        print('Stream error: $error');
+        setState(() {
+          _isConnected = false;
         });
-      } else {
-        timer.cancel();
-      }
-    });
+        // Auto-reconnect after error
+        _reconnectAfterDelay();
+      }, onDone: () {
+        print('Stream closed');
+        setState(() {
+          _isConnected = false;
+        });
+        // Auto-reconnect when stream ends
+        _reconnectAfterDelay();
+      });
+    } catch (e) {
+      print('Connection error: $e');
+      setState(() {
+        _isConnected = false;
+      });
+      _reconnectAfterDelay();
+    }
   }
 
-  void updateBusPosition() {
-    if (followBus && _busRouteCoordinates.isNotEmpty) {
-      mapController.move(
-        LatLng(
-          _busRouteCoordinates[_currentBusPositionIndex][0],
-          _busRouteCoordinates[_currentBusPositionIndex][1],
-        ),
-        mapController.zoom,
-      );
-    }
+  void _reconnectAfterDelay() {
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        _startTrackingBus();
+      }
+    });
   }
 
   @override
   void dispose() {
-    _busMovementTimer.cancel();
+    _streamSubscription?.cancel();
     super.dispose();
   }
 
@@ -225,23 +286,19 @@ class _HomrScreenState extends State<HomrScreen> {
               ),
               MarkerLayer(
                 markers: [
-                  if (_busRouteCoordinates.isNotEmpty)
-                    Marker(
-                      point: LatLng(
-                        _busRouteCoordinates[_currentBusPositionIndex][0],
-                        _busRouteCoordinates[_currentBusPositionIndex][1],
-                      ),
-                      width: 60,
-                      height: 60,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            followBus = !followBus;
-                          });
-                        },
-                        child: Image.asset('assets/bus.png'),
-                      ),
+                  Marker(
+                    point: _busPosition,
+                    width: 60,
+                    height: 60,
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          followBus = !followBus;
+                        });
+                      },
+                      child: Image.asset('assets/bus.png'),
                     ),
+                  ),
                   if (currentLocation != null)
                     Marker(
                       point: LatLng(
@@ -444,6 +501,28 @@ class _HomrScreenState extends State<HomrScreen> {
                   mapController.camera.zoom - 1,
                 );
               },
+            ),
+          ),
+          Positioned(
+            top: size.height * 0.13,
+            right: size.width * 0.05,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: _isConnected
+                    ? Color.fromARGB(0, 109, 148, 111).withOpacity(0.7)
+                    : Colors.red.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isConnected ? Icons.wifi : Icons.wifi_off,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ],
+              ),
             ),
           ),
         ],

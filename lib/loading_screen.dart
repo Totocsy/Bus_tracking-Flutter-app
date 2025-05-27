@@ -38,14 +38,7 @@ class _LoadingScreenState extends State<LoadingScreen>
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF1C1C1E),
-              Color(0xFF121212),
-            ],
-          ),
+          color: Color(0xFF121212), // Dark background like in the screenshot
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -59,8 +52,8 @@ class _LoadingScreenState extends State<LoadingScreen>
                       end: Alignment.centerRight,
                       colors: [
                         Colors.transparent,
-                        Colors.white,
-                        Colors.white,
+                        Colors.green,
+                        Colors.green,
                         Colors.transparent
                       ],
                       stops: [0.0, 0.3, 0.6, 1.0],
@@ -98,7 +91,7 @@ class _LoadingScreenState extends State<LoadingScreen>
             const SizedBox(height: 30),
             const CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(
-                  Color.fromARGB(255, 255, 255, 255)),
+                  Color(0xFF4CAF50)), // Green color to match the screenshot
             ),
           ],
         ),

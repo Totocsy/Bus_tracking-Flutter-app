@@ -2,6 +2,7 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"  // Új sor: Google Services Plugin
 }
 
 def localProperties = new Properties()
@@ -28,8 +29,8 @@ android {
     ndkVersion flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11 // Updated to Java 11
-        targetCompatibility JavaVersion.VERSION_11 // Updated to Java 11
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
 
     kotlinOptions {
@@ -42,10 +43,11 @@ android {
 
     defaultConfig {
         applicationId "com.example.bus_tracking"
-        minSdkVersion 20
+        minSdkVersion 21  // Frissítve 21-re a Firebase használatához (korábban 20 volt)
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        multiDexEnabled true  // Hozzáadva a multidex támogatáshoz
     }
 
     buildTypes {
@@ -59,4 +61,10 @@ flutter {
     source '../..'
 }
 
-dependencies {}
+dependencies {
+    // Firebase core függőség
+    implementation platform('com.google.firebase:firebase-bom:32.5.0')
+    
+    // Multidex támogatás
+    implementation 'androidx.multidex:multidex:2.0.1'
+}

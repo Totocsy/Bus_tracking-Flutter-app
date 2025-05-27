@@ -1,7 +1,8 @@
 import 'package:bus_tracking/destination.dart';
 import 'package:bus_tracking/home_screen.dart';
+import 'package:bus_tracking/profil.dart';
+import 'package:bus_tracking/tickets.dart';
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
@@ -16,6 +17,52 @@ class _SellectScreenState extends State<SellectScreen>
     with SingleTickerProviderStateMixin {
   bool isNight = false;
   String temperature = "Load";
+
+  // List of active buses with their details
+  final List<Map<String, dynamic>> activeBuses = [
+    {
+      'number': '23',
+      'route': 'Transport Local - SMURD',
+      'status': 'On Time',
+      'nextStop': 'Central Station',
+      'eta': '2 min'
+    },
+    {
+      'number': '43',
+      'route': 'Transport Local - Tudor',
+      'status': 'On Time',
+      'nextStop': 'Piața Victoriei',
+      'eta': '5 min'
+    },
+    {
+      'number': '44',
+      'route': 'Sapientia - Combinat',
+      'status': 'Delayed',
+      'nextStop': 'University',
+      'eta': '7 min'
+    },
+    {
+      'number': '21',
+      'route': 'Str. 8 Martie - Centru',
+      'status': 'On Time',
+      'nextStop': 'Municipal Hospital',
+      'eta': '3 min'
+    },
+    {
+      'number': '43',
+      'route': 'Transport Local - Tudor',
+      'status': 'On Time',
+      'nextStop': 'Theater',
+      'eta': '10 min'
+    },
+    {
+      'number': '23',
+      'route': 'Transport Local - SMURD',
+      'status': 'On Time',
+      'nextStop': 'Shopping Mall',
+      'eta': '12 min'
+    },
+  ];
 
   @override
   void initState() {
@@ -32,18 +79,30 @@ class _SellectScreenState extends State<SellectScreen>
   }
 
   Future<void> _fetchWeather() async {
-    final response = await http.get(Uri.parse(
-        'https://api.openweathermap.org/data/2.5/weather?q=Târgu Mureș&appid=4bb92d87ac86b0368216f5e824a81a62&units=metric'));
+    try {
+      final response = await http.get(Uri.parse(
+          'https://api.openweathermap.org/data/2.5/weather?q=Târgu Mureș&appid=4bb92d87ac86b0368216f5e824a81a62&units=metric'));
 
-    if (response.statusCode == 200) {
-      var data = json.decode(response.body);
-      setState(() {
-        temperature = "${data['main']['temp']}°";
-      });
-    } else {
-      setState(() {
-        temperature = "Err";
-      });
+      if (response.statusCode == 200) {
+        var data = json.decode(response.body);
+        if (mounted) {
+          setState(() {
+            temperature = "${data['main']['temp']}°";
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            temperature = "Err";
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          temperature = "Err";
+        });
+      }
     }
   }
 
@@ -141,13 +200,13 @@ class _SellectScreenState extends State<SellectScreen>
                 Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal: screenWidth * 0.05,
-                    vertical: screenHeight * 0.03,
+                    vertical: screenHeight * 0.02,
                   ),
                   child: _buildModernButton(
                     'Select your Destination',
                     Icons.place,
                     () {
-                      Navigator.of(context).pushReplacement(
+                      Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => PickDestinationScreen(),
                         ),
@@ -158,118 +217,424 @@ class _SellectScreenState extends State<SellectScreen>
                 ),
                 Container(
                   height: screenHeight * 0.5,
-                  child: ShaderMask(
-                    shaderCallback: (Rect bounds) {
-                      return LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.white,
-                          Colors.white,
-                          Colors.white.withOpacity(0.1),
-                          Colors.transparent
-                        ],
-                        stops: [1.0, 1.0, 1.0, 1.0],
-                      ).createShader(bounds);
-                    },
-                    blendMode: BlendMode.dstIn,
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: screenWidth * 0.05,
-                            vertical: screenHeight * 0.02,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: screenWidth * 0.05,
+                          vertical: screenHeight * 0.02,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 4,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              "Available Routes",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: GridView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: EdgeInsets.all(screenWidth * 0.05),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 1,
+                            childAspectRatio: 1.5,
+                            crossAxisSpacing: 15,
+                            mainAxisSpacing: 15,
                           ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 4,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  color: Colors.green,
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
+                          itemCount: 6,
+                          itemBuilder: (context, index) {
+                            final routes = [
+                              [
+                                '23',
+                                'Transport Local - SMURD',
+                                'routes_23.json'
+                              ],
+                              [
+                                '43',
+                                'Transport Local - Tudor',
+                                'routes_43.json'
+                              ],
+                              ['44', 'Sapientia - Combinat', 'routes_44.json'],
+                              [
+                                '21',
+                                'Str. 8 Martie - Centru',
+                                'routes_21.json'
+                              ],
+                              ['6', '→ Coming Soon', ''],
+                              ['26', '→ Coming Soon', ''],
+                            ];
+                            return _buildModernBusButton(
+                              routes[index][0],
+                              routes[index][1],
+                              screenWidth,
+                              () {
+                                if (index < 4) {
+                                  _navigateToBus(
+                                      routes[index][0], routes[index][2]);
+                                } else {
+                                  _showUnavailableDialog(context);
+                                }
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: screenWidth * 0.05),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          right: -50,
+                          bottom: -50,
+                          child: Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(
+                                colors: [
+                                  Colors.green.withOpacity(0.2),
+                                  Colors.transparent,
+                                ],
                               ),
-                              SizedBox(width: 8),
-                              Text(
-                                "Available Routes",
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
-                        Expanded(
-                          child: GridView.count(
-                            scrollDirection: Axis.horizontal,
-                            crossAxisCount: 1,
-                            padding: EdgeInsets.all(screenWidth * 0.05),
-                            mainAxisSpacing: 20,
-                            children: [
-                              _buildModernBusButton(
-                                  '23',
-                                  'Autogara Transport Local → SMURD',
-                                  screenWidth, () {
-                                _navigateToBus('23', 'routes_23.json');
-                              }),
-                              _buildModernBusButton(
-                                  '43',
-                                  'Autogara Transport Local → Tudor',
-                                  screenWidth, () {
-                                _navigateToBus('43', 'routes_43.json');
-                              }),
-                              _buildModernBusButton(
-                                  '44', 'Sapientia → Combinat', screenWidth,
-                                  () {
-                                _navigateToBus('44', 'routes_44.json');
-                              }),
-                              _buildModernBusButton(
-                                  '21', 'Str. 8 Martie → Centru', screenWidth,
-                                  () {
-                                _navigateToBus('21', 'routes_21.json');
-                              }),
-                              _buildModernBusButton(
-                                  '6', '→ Coming Soon', screenWidth, () {
-                                _showUnavailableDialog(context);
-                              }),
-                              _buildModernBusButton(
-                                  '26', '→ Coming Soon', screenWidth, () {
-                                _showUnavailableDialog(context);
-                              }),
-                            ],
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                _showActiveBusesDialog(context);
+                              },
+                              child: _buildInfoCard(
+                                "Active Buses",
+                                "6",
+                                Icons.directions_bus_outlined,
+                                Colors.green,
+                              ),
+                            ),
+                            _buildInfoCard(
+                              "On Time Arrival",
+                              "95%",
+                              Icons.timer_outlined,
+                              Colors.blue,
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
                 ),
-                Expanded(
-                  child: ShaderMask(
-                    shaderCallback: (Rect bounds) {
-                      return LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.centerRight,
-                        colors: [
-                          Colors.transparent,
-                          Colors.white.withOpacity(0.1),
-                          Colors.white,
-                          Colors.white,
-                        ],
-                        stops: [0.0, 0.1, 0.8, 1.1],
-                      ).createShader(bounds);
+              ],
+            ),
+          ),
+        ],
+      ),
+      // Update the FloatingActionButton implementation to fix stack overflow
+      bottomNavigationBar: Padding(
+        padding: EdgeInsets.only(bottom: 20.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            FloatingActionButton(
+              heroTag: "mapBtn",
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PickDestinationScreen(),
+                  ),
+                );
+              },
+              backgroundColor: Colors.green,
+              child: Icon(
+                Icons.map,
+                color: Colors.white,
+              ),
+            ),
+            FloatingActionButton(
+              heroTag: "profileBtn",
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ProfileScreen(),
+                  ),
+                );
+              },
+              backgroundColor: Colors.green,
+              child: Icon(
+                Icons.person,
+                color: Colors.white,
+              ),
+            ),
+            FloatingActionButton(
+              heroTag: "ticketsBtn",
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => BuyTicketsScreen(),
+                  ),
+                );
+              },
+              backgroundColor: Colors.green,
+              child: Icon(
+                Icons.shopify_outlined,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showActiveBusesDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Color(0xFF2C2C2E),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.1),
+                width: 1,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.2),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.directions_bus,
+                        color: Colors.green,
+                        size: 24,
+                      ),
+                      SizedBox(width: 12),
+                      Text(
+                        'Active Buses',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Spacer(),
+                      Text(
+                        'Total: 6',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.6,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: activeBuses.length,
+                    itemBuilder: (context, index) {
+                      final bus = activeBuses[index];
+                      final isOnTime = bus['status'] == 'On Time';
+
+                      // Determine the route file based on bus number
+                      String routeFile = 'routes_${bus['number']}.json';
+
+                      return GestureDetector(
+                        onTap: () {
+                          // Close the dialog first
+                          Navigator.of(context).pop();
+
+                          // Navigate to the home screen with the selected bus
+                          _navigateToBus(bus['number'], routeFile);
+                        },
+                        child: Container(
+                          margin:
+                              EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.1),
+                              width: 1,
+                            ),
+                          ),
+                          child: ListTile(
+                            leading: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  bus['number'],
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            title: Text(
+                              bus['route'],
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              'Next: ${bus['nextStop']} • ETA: ${bus['eta']}',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isOnTime
+                                        ? Colors.green.withOpacity(0.2)
+                                        : Colors.orange.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    bus['status'],
+                                    style: TextStyle(
+                                      color: isOnTime
+                                          ? Colors.green
+                                          : Colors.orange,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(width: 8),
+                                Icon(
+                                  Icons.arrow_forward_ios,
+                                  size: 14,
+                                  color: Colors.white.withOpacity(0.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
                     },
-                    blendMode: BlendMode.dstIn,
-                    child: LottieBuilder.asset(
-                      'assets/bus1.json',
-                      repeat: true,
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.all(16),
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.of(context).pop();
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Close',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoCard(
+      String title, String value, IconData icon, Color color) {
+    return Container(
+      width: 140,
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.1),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 28),
+          SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            title,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.7),
+              fontSize: 14,
             ),
           ),
         ],
@@ -367,8 +732,10 @@ class _SellectScreenState extends State<SellectScreen>
     );
   }
 
+  // Fixed navigation method to avoid stack overflow
   void _navigateToBus(String busNumber, String route) {
-    Navigator.of(context).pushReplacement(
+    // Use push instead of pushReplacement
+    Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => HomrScreen(
           destinationLat: 0.0,
