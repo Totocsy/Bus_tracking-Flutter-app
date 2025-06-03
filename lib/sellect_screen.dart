@@ -829,63 +829,95 @@ void _showForecastPopup(
     BuildContext context, List<Map<String, dynamic>> forecast) {
   showModalBottomSheet(
     context: context,
-    backgroundColor: Color(0xFF1C1C1E), // dark card background
-    shape: RoundedRectangleBorder(
+    isScrollControlled: true,
+    backgroundColor: const Color(0xFF1C1C1E),
+    shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (_) {
+    builder: (BuildContext context) {
+      final mediaQuery = MediaQuery.of(context);
+      final height = mediaQuery.size.height;
+
       return Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 50,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[700],
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            SizedBox(height: 10),
-            Text(
-              "Today Forecast",
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 10),
-            ...forecast.map((item) => Container(
-                  margin: EdgeInsets.symmetric(vertical: 6),
-                  padding: EdgeInsets.all(12),
+        padding: EdgeInsets.only(
+          left: 16.0,
+          right: 16.0,
+          top: 16.0,
+          bottom: mediaQuery.viewInsets.bottom + 16,
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: height * 0.8, // Prevent it from taking full screen
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 50,
+                  height: 4,
                   decoration: BoxDecoration(
-                    color: Color(0xFF2C2C2E),
-                    borderRadius: BorderRadius.circular(16),
+                    color: Colors.grey[700],
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(item['time'],
-                          style: TextStyle(color: Colors.white70)),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text("${item['temp']}°C",
-                              style: TextStyle(
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "Today Forecast",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...forecast.map(
+                  (item) => Container(
+                    margin: const EdgeInsets.symmetric(vertical: 6),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C2C2E),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            item['time'],
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                "${item['temp']}°C",
+                                style: const TextStyle(
                                   color: Colors.white,
-                                  fontWeight: FontWeight.bold)),
-                          Text(item['description'],
-                              style: TextStyle(
-                                  color: Colors.white70, fontSize: 12)),
-                        ],
-                      )
-                    ],
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                item['description'],
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                                textAlign: TextAlign.end,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                )),
-            SizedBox(height: 16),
-          ],
+                ),
+              ],
+            ),
+          ),
         ),
       );
     },
