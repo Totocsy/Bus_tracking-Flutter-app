@@ -12,24 +12,16 @@ class TrafficLevel {
   TrafficLevel(this.level, this.color, this.backgroundColor);
 }
 
-// ML Learning Data osztály
+// ML Learning Data osztály - egyszerűsített
 class MLTrafficData {
   final DateTime timestamp;
   final int ticketsSold;
   final int actualPassengers;
-  final double hour;
-  final bool isWeekend;
-  final bool isRushHour;
-  final String weatherCondition;
 
   MLTrafficData({
     required this.timestamp,
     required this.ticketsSold,
     required this.actualPassengers,
-    required this.hour,
-    required this.isWeekend,
-    required this.isRushHour,
-    required this.weatherCondition,
   });
 
   Map<String, dynamic> toMap() {
@@ -37,17 +29,50 @@ class MLTrafficData {
       'timestamp': timestamp,
       'ticketsSold': ticketsSold,
       'actualPassengers': actualPassengers,
-      'hour': hour,
-      'isWeekend': isWeekend,
-      'isRushHour': isRushHour,
-      'weatherCondition': weatherCondition,
     };
   }
 }
 
-// ML Traffic Service - Minden ML funkcionalitás itt van
+// ML Model - csak jegyek alapján
+class SimpleMLModel {
+  double multiplier;
+  double offset;
+  DateTime lastUpdated;
+  int trainingCycles;
+  double avgError;
+
+  SimpleMLModel({
+    this.multiplier = 1.5, // Alapértelmezett: 1 jegy = 1.5 utas
+    this.offset = 5.0, // Alapértelmezett offset
+    required this.lastUpdated,
+    this.trainingCycles = 0,
+    this.avgError = 0.0,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'multiplier': multiplier,
+      'offset': offset,
+      'lastUpdated': lastUpdated,
+      'trainingCycles': trainingCycles,
+      'avgError': avgError,
+    };
+  }
+
+  factory SimpleMLModel.fromMap(Map<String, dynamic> map) {
+    return SimpleMLModel(
+      multiplier: map['multiplier'] ?? 1.5,
+      offset: map['offset'] ?? 5.0,
+      lastUpdated: (map['lastUpdated'] as Timestamp).toDate(),
+      trainingCycles: map['trainingCycles'] ?? 0,
+      avgError: map['avgError'] ?? 0.0,
+    );
+  }
+}
+
+// Egyszerűsített ML Traffic Service - csak jegyek alapján
 class MLTrafficService {
-  // Változók
+  // Helyi változók
   int _currentTraffic = 0;
   int _prediction = 0;
   int _confidence = 0;
@@ -56,16 +81,10 @@ class MLTrafficService {
   Timer? _mlUpdateTimer;
   final Random _random = Random();
 
-  // ML Learning komponensek
+  // Firestore és ML komponensek
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<MLTrafficData> _historicalData = [];
-  Map<String, double> _mlWeights = {
-    'hour': 0.3,
-    'isWeekend': 0.2,
-    'isRushHour': 0.25,
-    'ticketsSold': 0.15,
-    'weatherFactor': 0.1,
-  };
+  SimpleMLModel? _mlModel;
 
   // Callback funkciókat fogad a UI frissítéshez
   Function(int, int, int, bool)? onTrafficUpdate;
@@ -77,28 +96,79 @@ class MLTrafficService {
   int get totalTicketsSold => _totalTicketsSold;
   bool get isMLLoading => _isMLLoading;
   List<MLTrafficData> get historicalData => _historicalData;
+  SimpleMLModel? get mlModel => _mlModel;
 
   // ML system inicializálása
   Future<void> initializeMLSystem() async {
     _isMLLoading = true;
     _notifyUpdate();
 
+    // Betöltjük a modellt a Firestore-ból
+    await _loadMLModelFromFirestore();
+
+    // Betöltjük a történelmi adatokat
     await _loadHistoricalData();
+
+    // Lekérjük az aktuális jegy adatokat
     await _fetchCurrentTicketData();
-    _trainMLModel();
-    await _generateEnhancedMLPrediction();
+
+    // Tanítjuk a modellt
+    await _trainSimpleModel();
+
+    // Generálunk predikciót
+    await _generateSimplePrediction();
 
     _isMLLoading = false;
     _notifyUpdate();
+  }
+
+  // ML modell betöltése Firestore-ból
+  Future<void> _loadMLModelFromFirestore() async {
+    try {
+      final DocumentSnapshot modelDoc = await _firestore
+          .collection('simple_ml_models')
+          .doc('ticket_traffic_model')
+          .get();
+
+      if (modelDoc.exists) {
+        _mlModel =
+            SimpleMLModel.fromMap(modelDoc.data() as Map<String, dynamic>);
+        print(
+            'ML model loaded: multiplier=${_mlModel!.multiplier}, offset=${_mlModel!.offset}');
+      } else {
+        // Ha nincs mentett modell, inicializáljuk
+        _mlModel = SimpleMLModel(lastUpdated: DateTime.now());
+        await _saveMLModelToFirestore();
+        print('New simple ML model initialized');
+      }
+    } catch (e) {
+      print('Error loading ML model: $e');
+      _mlModel = SimpleMLModel(lastUpdated: DateTime.now());
+    }
+  }
+
+  // ML modell mentése Firestore-ba
+  Future<void> _saveMLModelToFirestore() async {
+    try {
+      if (_mlModel != null) {
+        await _firestore
+            .collection('simple_ml_models')
+            .doc('ticket_traffic_model')
+            .set(_mlModel!.toMap());
+        print('Simple ML model saved');
+      }
+    } catch (e) {
+      print('Error saving ML model: $e');
+    }
   }
 
   // Történelmi adatok betöltése
   Future<void> _loadHistoricalData() async {
     try {
       final QuerySnapshot snapshot = await _firestore
-          .collection('ml_traffic_data')
+          .collection('simple_ml_data')
           .orderBy('timestamp', descending: true)
-          .limit(100)
+          .limit(200)
           .get();
 
       _historicalData = snapshot.docs.map((doc) {
@@ -107,12 +177,10 @@ class MLTrafficService {
           timestamp: (data['timestamp'] as Timestamp).toDate(),
           ticketsSold: data['ticketsSold'] ?? 0,
           actualPassengers: data['actualPassengers'] ?? 0,
-          hour: data['hour'] ?? 0.0,
-          isWeekend: data['isWeekend'] ?? false,
-          isRushHour: data['isRushHour'] ?? false,
-          weatherCondition: data['weatherCondition'] ?? 'clear',
         );
       }).toList();
+
+      print('Loaded ${_historicalData.length} simple data points');
     } catch (e) {
       print('Error loading historical data: $e');
     }
@@ -125,7 +193,6 @@ class MLTrafficService {
       final DateTime startOfDay = DateTime(now.year, now.month, now.day);
       final DateTime endOfDay = startOfDay.add(Duration(days: 1));
 
-      // Mai napi jegyek lekérése
       final QuerySnapshot todayTickets = await _firestore
           .collection('tickets')
           .where('purchaseDate',
@@ -134,142 +201,158 @@ class MLTrafficService {
           .get();
 
       _totalTicketsSold = todayTickets.docs.length;
+      print('Today tickets sold: $_totalTicketsSold');
     } catch (e) {
       print('Error fetching ticket data: $e');
-      // Fallback to simulated data
-      _totalTicketsSold = _random.nextInt(50) + 20;
+      _totalTicketsSold = _random.nextInt(30) + 10;
     }
   }
 
-  // ML model tanítása
-  void _trainMLModel() {
-    if (_historicalData.isEmpty) return;
+  // Egyszerű modell tanítása - csak jegyek vs utasok
+  Future<void> _trainSimpleModel() async {
+    if (_historicalData.isEmpty || _mlModel == null) return;
 
-    // Súlyok finomhangolása a múltbeli adatok alapján
     double totalError = 0;
-    int validPredictions = 0;
+    int validData = 0;
+    double sumTickets = 0;
+    double sumPassengers = 0;
 
+    List<double> tickets = [];
+    List<double> passengers = [];
+
+    // Adatok gyűjtése
     for (var data in _historicalData) {
-      double predictedTraffic = _calculateTrafficPrediction(
-        data.hour,
-        data.isWeekend,
-        data.isRushHour,
-        data.ticketsSold,
-        data.weatherCondition,
-      );
-
-      double error = (predictedTraffic - data.actualPassengers).abs();
-      totalError += error;
-      validPredictions++;
-    }
-
-    // Adaptív tanulás - súlyok módosítása a hibák alapján
-    if (validPredictions > 0) {
-      double avgError = totalError / validPredictions;
-
-      // Ha a hiba túl nagy, csökkentjük a jegyek súlyát és növeljük az időfaktorokét
-      if (avgError > 10) {
-        _mlWeights['ticketsSold'] = max(0.1, _mlWeights['ticketsSold']! - 0.02);
-        _mlWeights['hour'] = min(0.4, _mlWeights['hour']! + 0.01);
-        _mlWeights['isRushHour'] = min(0.3, _mlWeights['isRushHour']! + 0.01);
+      if (data.ticketsSold > 0) {
+        tickets.add(data.ticketsSold.toDouble());
+        passengers.add(data.actualPassengers.toDouble());
+        sumTickets += data.ticketsSold;
+        sumPassengers += data.actualPassengers;
+        validData++;
       }
     }
-  }
 
-  // Forgalom predikció számítása
-  double _calculateTrafficPrediction(double hour, bool isWeekend,
-      bool isRushHour, int ticketsSold, String weatherCondition) {
-    double prediction = 0;
+    if (validData < 2) return;
 
-    // Óra alapján
-    double hourFactor = 1.0;
-    if (hour >= 7 && hour <= 9)
-      hourFactor = 1.8; // Reggeli csúcs
-    else if (hour >= 17 && hour <= 19)
-      hourFactor = 1.6; // Délutáni csúcs
-    else if (hour >= 22 || hour <= 5) hourFactor = 0.3; // Éjszaka
-    prediction += hourFactor * 15 * _mlWeights['hour']!;
+    // Egyszerű lineáris regresszió: passengers = multiplier * tickets + offset
+    double avgTickets = sumTickets / validData;
+    double avgPassengers = sumPassengers / validData;
 
-    // Hétvége faktor
-    if (isWeekend) {
-      prediction *= 0.7 * _mlWeights['isWeekend']!;
+    double numerator = 0;
+    double denominator = 0;
+
+    for (int i = 0; i < tickets.length; i++) {
+      double ticketDiff = tickets[i] - avgTickets;
+      double passengerDiff = passengers[i] - avgPassengers;
+      numerator += ticketDiff * passengerDiff;
+      denominator += ticketDiff * ticketDiff;
     }
 
-    // Rush hour faktor
-    if (isRushHour) {
-      prediction *= 1.4 * _mlWeights['isRushHour']!;
+    // Új multiplier számítása
+    if (denominator != 0) {
+      double newMultiplier = numerator / denominator;
+      double newOffset = avgPassengers - (newMultiplier * avgTickets);
+
+      // Hibák számítása
+      for (int i = 0; i < tickets.length; i++) {
+        double predicted = newMultiplier * tickets[i] + newOffset;
+        double error = (predicted - passengers[i]).abs();
+        totalError += error;
+      }
+
+      double avgError = totalError / validData;
+
+      // Modell frissítése ha jobb lett
+      if (avgError < _mlModel!.avgError || _mlModel!.trainingCycles == 0) {
+        _mlModel!.multiplier = newMultiplier.clamp(0.5, 5.0);
+        _mlModel!.offset = newOffset.clamp(0.0, 20.0);
+        _mlModel!.avgError = avgError;
+      }
+
+      _mlModel!.trainingCycles++;
+      _mlModel!.lastUpdated = DateTime.now();
+
+      // Mentjük a modellt
+      await _saveMLModelToFirestore();
+
+      print(
+          'Model trained: multiplier=${_mlModel!.multiplier.toStringAsFixed(2)}, '
+          'offset=${_mlModel!.offset.toStringAsFixed(2)}, '
+          'error=${_mlModel!.avgError.toStringAsFixed(2)}');
     }
-
-    // Jegyek alapján - ez a legfontosabb új komponens
-    double ticketFactor = ticketsSold / 30.0; // Normalizálás
-    prediction += ticketFactor * 25 * _mlWeights['ticketsSold']!;
-
-    return prediction.clamp(5, 80);
   }
 
-  // Enhanced ML predikció generálása
-  Future<void> _generateEnhancedMLPrediction() async {
+  // Egyszerű predikció generálása
+  Future<void> _generateSimplePrediction() async {
     await _fetchCurrentTicketData();
 
-    final DateTime now = DateTime.now();
-    final double hour = now.hour.toDouble();
-    final bool isWeekend = now.weekday >= 6;
-    final bool isRushHour =
-        (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19);
+    if (_mlModel == null) return;
 
-    // Aktuális forgalom számítása a jegyek alapján
-    double currentTrafficPrediction = _calculateTrafficPrediction(
-        hour, isWeekend, isRushHour, _totalTicketsSold, 'clear');
+    // Aktuális forgalom számítása
+    double currentPrediction =
+        (_mlModel!.multiplier * _totalTicketsSold) + _mlModel!.offset;
+    _currentTraffic = currentPrediction.clamp(0, 100).round();
 
-    // Jövő órára előrejelzés
-    double nextHourPrediction = _calculateTrafficPrediction(
-        hour + 1,
-        isWeekend,
-        ((hour + 1) >= 7 && (hour + 1) <= 9) ||
-            ((hour + 1) >= 17 && (hour + 1) <= 19),
-        _totalTicketsSold,
-        'clear');
+    // Jövő órára becslés (+ 10% több jegy eladva)
+    double futureTickets = _totalTicketsSold * 1.1;
+    double futurePrediction =
+        (_mlModel!.multiplier * futureTickets) + _mlModel!.offset;
+    _prediction = futurePrediction.clamp(0, 100).round();
 
-    // Konfidencia számítása az adatok mennyisége alapján
-    int confidence = min(95, 60 + (_historicalData.length * 2));
-
-    _currentTraffic = currentTrafficPrediction.round();
-    _prediction = nextHourPrediction.round();
-    _confidence = confidence;
+    // Konfidencia számítása
+    _confidence = _calculateSimpleConfidence();
 
     _notifyUpdate();
 
-    // Aktuális adatok mentése a tanuláshoz
-    await _saveCurrentDataForLearning(currentTrafficPrediction.round());
+    // Aktuális adatok mentése
+    await _saveCurrentDataForLearning(_currentTraffic);
   }
 
-  // Aktuális adatok mentése ML tanuláshoz
-  Future<void> _saveCurrentDataForLearning(int predictedPassengers) async {
+  // Konfidencia számítása
+  int _calculateSimpleConfidence() {
+    if (_mlModel == null) return 50;
+
+    int confidence = 50;
+
+    // Tanítási ciklusok alapján
+    confidence += min(20, _mlModel!.trainingCycles * 2);
+
+    // Adatok mennyisége alapján
+    confidence += min(20, _historicalData.length ~/ 5);
+
+    // Hiba alapján
+    if (_mlModel!.avgError < 5)
+      confidence += 15;
+    else if (_mlModel!.avgError > 15) confidence -= 15;
+
+    return confidence.clamp(30, 95);
+  }
+
+  // Aktuális adatok mentése
+  Future<void> _saveCurrentDataForLearning(int currentPassengers) async {
     try {
-      final DateTime now = DateTime.now();
       final MLTrafficData currentData = MLTrafficData(
-        timestamp: now,
+        timestamp: DateTime.now(),
         ticketsSold: _totalTicketsSold,
-        actualPassengers:
-            predictedPassengers, // Ezt később valós adattal kellene frissíteni
-        hour: now.hour.toDouble(),
-        isWeekend: now.weekday >= 6,
-        isRushHour: (now.hour >= 7 && now.hour <= 9) ||
-            (now.hour >= 17 && now.hour <= 19),
-        weatherCondition:
-            'clear', // Ezt is frissíteni kellene valós időjárás adatokkal
+        actualPassengers: currentPassengers,
       );
 
-      await _firestore.collection('ml_traffic_data').add(currentData.toMap());
+      await _firestore.collection('simple_ml_data').add(currentData.toMap());
+      print('Current simple data saved for learning');
     } catch (e) {
-      print('Error saving ML data: $e');
+      print('Error saving simple ML data: $e');
     }
   }
 
-  // ML rendszeres frissítés
+  // Rendszeres frissítés
   void startMLPeriodicUpdate() {
-    _mlUpdateTimer = Timer.periodic(Duration(seconds: 45), (timer) {
-      _generateEnhancedMLPrediction();
+    _mlUpdateTimer = Timer.periodic(Duration(minutes: 5), (timer) async {
+      await _generateSimplePrediction();
+
+      // 30 percenként újratanítás
+      if (DateTime.now().minute % 30 == 0) {
+        await _loadHistoricalData();
+        await _trainSimpleModel();
+      }
     });
   }
 
@@ -279,14 +362,37 @@ class MLTrafficService {
       return TrafficLevel('Alacsony', Colors.green, Colors.green.shade100);
     } else if (count <= 40) {
       return TrafficLevel('Közepes', Colors.orange, Colors.orange.shade100);
-    } else {
+    } else if (count <= 60) {
       return TrafficLevel('Magas', Colors.red, Colors.red.shade100);
+    } else {
+      return TrafficLevel('Kritikus', Colors.red.shade800, Colors.red.shade200);
     }
   }
 
   // Manuális frissítés
   Future<void> refreshPredictions() async {
-    await _generateEnhancedMLPrediction();
+    _isMLLoading = true;
+    _notifyUpdate();
+
+    await _loadHistoricalData();
+    await _trainSimpleModel();
+    await _generateSimplePrediction();
+
+    _isMLLoading = false;
+    _notifyUpdate();
+  }
+
+  // Egyszerű statisztikák
+  Map<String, dynamic> getSimpleStats() {
+    return {
+      'multiplier': _mlModel?.multiplier ?? 0.0,
+      'offset': _mlModel?.offset ?? 0.0,
+      'trainingCycles': _mlModel?.trainingCycles ?? 0,
+      'avgError': _mlModel?.avgError ?? 0.0,
+      'confidence': _confidence,
+      'dataPoints': _historicalData.length,
+      'ticketsSoldToday': _totalTicketsSold,
+    };
   }
 
   // Callback értesítés
