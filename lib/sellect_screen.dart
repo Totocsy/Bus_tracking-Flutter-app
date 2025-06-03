@@ -69,6 +69,7 @@ class _SellectScreenState extends State<SellectScreen>
     super.initState();
     _updateTimeOfDay();
     _fetchWeather();
+    _fetchForecast();
   }
 
   void _updateTimeOfDay() {
@@ -76,6 +77,33 @@ class _SellectScreenState extends State<SellectScreen>
     setState(() {
       isNight = hour < 6 || hour > 18;
     });
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchForecast() async {
+    try {
+      final response = await http.get(Uri.parse(
+        'https://api.openweathermap.org/data/2.5/forecast?q=Târgu Mureș&appid=4bb92d87ac86b0368216f5e824a81a62&units=metric',
+      ));
+
+      if (response.statusCode == 200) {
+        var data = json.decode(response.body);
+        List<Map<String, dynamic>> forecast = [];
+
+        for (var item in data['list'].take(5)) {
+          // just show next 5 forecasts
+          forecast.add({
+            'time': item['dt_txt'],
+            'temp': item['main']['temp'],
+            'description': item['weather'][0]['description'],
+          });
+        }
+        return forecast;
+      } else {
+        return [];
+      }
+    } catch (e) {
+      return [];
+    }
   }
 
   Future<void> _fetchWeather() async {
@@ -164,36 +192,43 @@ class _SellectScreenState extends State<SellectScreen>
                           ),
                         ],
                       ),
-                      Container(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
+                      GestureDetector(
+                        onTap: () async {
+                          final forecast = await _fetchForecast();
+                          if (!context.mounted) return;
+                          _showForecastPopup(context, forecast);
+                        },
+                        child: Container(
+                          padding:
+                              EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.1),
-                            width: 1,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.1),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                isNight ? Icons.nights_stay : Icons.wb_sunny,
+                                color: isNight ? Colors.blue : Colors.orange,
+                                size: 20,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                temperature,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              isNight ? Icons.nights_stay : Icons.wb_sunny,
-                              color: isNight ? Colors.blue : Colors.orange,
-                              size: 20,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              temperature,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      )
                     ],
                   ),
                 ),
@@ -788,4 +823,71 @@ class _SellectScreenState extends State<SellectScreen>
       },
     );
   }
+}
+
+void _showForecastPopup(
+    BuildContext context, List<Map<String, dynamic>> forecast) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Color(0xFF1C1C1E), // dark card background
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (_) {
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 50,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[700],
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            SizedBox(height: 10),
+            Text(
+              "Today Forecast",
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 10),
+            ...forecast.map((item) => Container(
+                  margin: EdgeInsets.symmetric(vertical: 6),
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Color(0xFF2C2C2E),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(item['time'],
+                          style: TextStyle(color: Colors.white70)),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text("${item['temp']}°C",
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold)),
+                          Text(item['description'],
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 12)),
+                        ],
+                      )
+                    ],
+                  ),
+                )),
+            SizedBox(height: 16),
+          ],
+        ),
+      );
+    },
+  );
 }

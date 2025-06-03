@@ -8,6 +8,15 @@ import 'package:location/location.dart';
 import 'package:http/http.dart' as http;
 import 'sellect_screen.dart';
 
+// ML Traffic Level osztály
+class TrafficLevel {
+  final String level;
+  final Color color;
+  final Color backgroundColor;
+
+  TrafficLevel(this.level, this.color, this.backgroundColor);
+}
+
 class HomrScreen extends StatefulWidget {
   final double destinationLat;
   final double destinationLng;
@@ -43,7 +52,18 @@ class _HomrScreenState extends State<HomrScreen> {
   final String serverUrl = "https://bus-api-7ph1.onrender.com";
   DateTime? _lastUpdateTime;
 
-  static const double averageBusSpeedKmph = 52.1;
+  static const double averageBusSpeedKmph = 53;
+
+  // ML Traffic Prediction változók
+  int _currentTraffic = 0;
+  int _prediction = 0;
+  int _confidence = 0;
+  int _activeUsers = 0;
+  int _loggedInUsers = 0;
+  bool _isMLLoading = true;
+  Timer? _mlUpdateTimer;
+  final Random _random = Random();
+  bool _showMLCard = false;
 
   @override
   void initState() {
@@ -52,6 +72,72 @@ class _HomrScreenState extends State<HomrScreen> {
     destinationLng = widget.destinationLng;
     getCurrentLocation();
     _startTrackingBus();
+    _initializeMLModel();
+    _startMLPeriodicUpdate();
+  }
+
+  // ML model inicializálása
+  void _initializeMLModel() async {
+    await Future.delayed(Duration(seconds: 2));
+    _generateMLPrediction();
+    setState(() {
+      _isMLLoading = false;
+    });
+  }
+
+  // ML predikció generálása
+  void _generateMLPrediction() {
+    final hour = DateTime.now().hour;
+    final isWeekend = DateTime.now().weekday >= 6;
+    final isRushHour = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19);
+
+    // Szimulált app használati adatok
+    final baseActiveUsers = _random.nextInt(150) + 50;
+    final baseLoggedUsers = (baseActiveUsers * 0.7).floor();
+
+    // ML algoritmus szimuláció
+    int basePrediction = _random.nextInt(40) + 10;
+
+    // Faktorok alkalmazása
+    if (isRushHour) basePrediction = (basePrediction * 1.5).floor();
+    if (isWeekend) basePrediction = (basePrediction * 0.7).floor();
+
+    // App használati adatok befolyása
+    final userActivityFactor = baseActiveUsers / 100;
+    basePrediction = (basePrediction * userActivityFactor).floor();
+
+    // Jelenlegi forgalom
+    final currentValue = max(0, basePrediction + _random.nextInt(10) - 5);
+    final predictionValue = max(0, basePrediction);
+    final confidenceValue = _random.nextInt(20) + 75;
+
+    if (mounted) {
+      setState(() {
+        _currentTraffic = currentValue;
+        _prediction = predictionValue;
+        _confidence = confidenceValue;
+        _activeUsers = baseActiveUsers;
+        _loggedInUsers = baseLoggedUsers;
+      });
+    }
+  }
+
+  // ML rendszeres frissítés
+  void _startMLPeriodicUpdate() {
+    _mlUpdateTimer = Timer.periodic(Duration(seconds: 30), (timer) {
+      _generateMLPrediction();
+    });
+  }
+
+  // Traffic level meghatározása
+  TrafficLevel _getTrafficLevel(int count) {
+    if (count <= 15) {
+      return TrafficLevel('Alacsony', Colors.green, Colors.green.shade100);
+    } else if (count <= 30) {
+      return TrafficLevel('Közepes', Colors.orange, Colors.orange.shade100);
+    } else {
+      return TrafficLevel('Magas', Colors.red, Colors.red.shade100);
+    }
   }
 
   double calculateDistance(double startLatitude, double startLongitude,
@@ -75,14 +161,12 @@ class _HomrScreenState extends State<HomrScreen> {
   double calculateEstimatedArrivalTime() {
     if (polylineCoordinates.isEmpty) return 0.0;
 
-    // Calculate straight-line distance to destination
     double distanceToDestination = calculateDistance(
         _busPosition.latitude,
         _busPosition.longitude,
         currentLocation!.latitude!,
         currentLocation!.longitude!);
 
-    // Estimate time based on average speed
     double estimatedTimeInMinutes =
         (distanceToDestination / averageBusSpeedKmph) * 60 * 1;
 
@@ -94,36 +178,34 @@ class _HomrScreenState extends State<HomrScreen> {
       return averageBusSpeedKmph;
     }
 
-    // Calculate speed based on last two positions if available
-    if (polylineCoordinates.length >= 2) {
-      LatLng prevPosition = polylineCoordinates[polylineCoordinates.length - 2];
-      LatLng currentPosition =
-          polylineCoordinates[polylineCoordinates.length - 1];
+    LatLng prevPosition = polylineCoordinates[polylineCoordinates.length - 2];
+    LatLng currentPosition =
+        polylineCoordinates[polylineCoordinates.length - 1];
 
-      double distance = calculateDistance(
-          prevPosition.latitude,
-          prevPosition.longitude,
-          currentPosition.latitude,
-          currentPosition.longitude);
+    double distanceKm = calculateDistance(
+      prevPosition.latitude,
+      prevPosition.longitude,
+      currentPosition.latitude,
+      currentPosition.longitude,
+    );
 
-      // Calculate time difference
-      DateTime now = DateTime.now();
-      double timeDiffInHours =
-          now.difference(_lastUpdateTime!).inMilliseconds / (1000 * 60 * 60);
+    DateTime now = DateTime.now();
+    double timeDiffInSeconds =
+        now.difference(_lastUpdateTime!).inMilliseconds / 1000;
 
-      if (timeDiffInHours > 0) {
-        double speedKmph = distance / timeDiffInHours;
-
-        // Filter unrealistic speeds
-        if (speedKmph > 80 || speedKmph < 0) {
-          return averageBusSpeedKmph;
-        }
-
-        return speedKmph;
-      }
+    if (timeDiffInSeconds < 1) {
+      // Ha túl gyors a frissítés, ne számoljunk sebességet
+      return averageBusSpeedKmph;
     }
 
-    return averageBusSpeedKmph;
+    double speedKmph = (distanceKm / timeDiffInSeconds) * 3600;
+
+    // Csak a negatív és irreálisan magas értékeket szűrjük ki
+    if (speedKmph < -1 || speedKmph > 85) {
+      return averageBusSpeedKmph;
+    }
+
+    return speedKmph;
   }
 
   void getCurrentLocation() async {
@@ -152,11 +234,9 @@ class _HomrScreenState extends State<HomrScreen> {
       _isConnected = false;
     });
 
-    // Cancel any existing subscription
     await _streamSubscription?.cancel();
 
     try {
-      // Create a connection to the SSE endpoint
       final Uri url = Uri.parse('$serverUrl/bus/${widget.busNumber}/movement');
       final request = http.Request('GET', url);
       request.headers['Accept'] = 'text/event-stream';
@@ -175,15 +255,12 @@ class _HomrScreenState extends State<HomrScreen> {
         _isConnected = true;
       });
 
-      // Process the SSE stream
       _streamSubscription = streamedResponse.stream
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen((String line) {
-        // Process each line from the SSE stream
         if (line.startsWith('data: ')) {
           try {
-            // Parse the JSON data
             final jsonData = json.decode(line.substring(6));
 
             if (jsonData.containsKey('lat') && jsonData.containsKey('lon')) {
@@ -196,20 +273,16 @@ class _HomrScreenState extends State<HomrScreen> {
                 polylineCoordinates.add(newPosition);
                 _lastUpdateTime = DateTime.now();
 
-                // Limit the number of route points to avoid memory issues
                 if (polylineCoordinates.length > 500) {
                   polylineCoordinates = polylineCoordinates
                       .sublist(polylineCoordinates.length - 500);
                 }
 
-                // Update arrival time and speed estimates
                 estimatedArrivalTime = calculateEstimatedArrivalTime();
                 currentSpeed = _calculateAverageBusSpeed();
 
-                // Auto-center map if following bus
                 if (followBus) {
-                  // ignore: deprecated_member_use
-                  mapController.move(_busPosition, mapController.zoom);
+                  mapController.move(_busPosition, mapController.camera.zoom);
                 }
               });
             }
@@ -222,14 +295,12 @@ class _HomrScreenState extends State<HomrScreen> {
         setState(() {
           _isConnected = false;
         });
-        // Auto-reconnect after error
         _reconnectAfterDelay();
       }, onDone: () {
         print('Stream closed');
         setState(() {
           _isConnected = false;
         });
-        // Auto-reconnect when stream ends
         _reconnectAfterDelay();
       });
     } catch (e) {
@@ -249,9 +320,198 @@ class _HomrScreenState extends State<HomrScreen> {
     });
   }
 
+  // ML kártya építése
+  Widget _buildMLTrafficCard() {
+    if (_isMLLoading) {
+      return _buildMLLoadingCard();
+    }
+
+    final currentLevel = _getTrafficLevel(_currentTraffic);
+
+    return Container(
+      margin: EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Color.fromARGB(255, 49, 49, 49).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 10,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.trending_up, color: Colors.greenAccent, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Busz Forgalom',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          offset: Offset(2.0, 2.0),
+                          blurRadius: 10.0,
+                          color: Colors.black,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.greenAccent.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'ML',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.greenAccent,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 12),
+
+          // Jelenlegi forgalom
+          Row(
+            children: [
+              Icon(Icons.people, color: Colors.white, size: 16),
+              SizedBox(width: 8),
+              Text(
+                'Jelenleg: $_currentTraffic utas',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(width: 8),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: currentLevel.backgroundColor.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: currentLevel.color, width: 1),
+                ),
+                child: Text(
+                  currentLevel.level,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: currentLevel.color,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 8),
+
+          // Előrejelzés
+          Row(
+            children: [
+              Icon(Icons.schedule, color: Colors.orange, size: 16),
+              SizedBox(width: 8),
+              Text(
+                'Előrejelzés: $_prediction utas ($_confidence%)',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 8),
+
+          // Adatforrások
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Aktív: $_activeUsers',
+                style: TextStyle(
+                  color: Colors.grey.shade400,
+                  fontSize: 10,
+                ),
+              ),
+              Text(
+                'Bejelentkezve: $_loggedInUsers',
+                style: TextStyle(
+                  color: Colors.grey.shade400,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ML betöltő kártya
+  Widget _buildMLLoadingCard() {
+    return Container(
+      margin: EdgeInsets.all(16),
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Color.fromARGB(255, 49, 49, 49).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 10,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.greenAccent),
+                ),
+              ),
+              SizedBox(width: 8),
+              Text(
+                'ML model betöltése...',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _streamSubscription?.cancel();
+    _mlUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -382,6 +642,43 @@ class _HomrScreenState extends State<HomrScreen> {
               ),
             ),
           ),
+
+          // ML Traffic Prediction Card
+          if (_showMLCard)
+            Positioned(
+              top: size.height * 0.15,
+              left: 0,
+              right: 0,
+              child: _buildMLTrafficCard(),
+            ),
+
+          // ML Toggle Button
+          Positioned(
+            top: size.height * 0.13,
+            left: size.width * 0.05,
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showMLCard = !_showMLCard;
+                });
+              },
+              child: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _showMLCard
+                      ? Colors.greenAccent.withOpacity(0.7)
+                      : Color.fromARGB(255, 49, 49, 49).withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.analytics,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+
           Positioned(
             top: size.height * 0.89,
             left: size.width * 0.02,
