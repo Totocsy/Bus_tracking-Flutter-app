@@ -39,13 +39,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     // Ellenőrizzük, hogy a felhasználó már be van-e jelentkezve
-    _checkCurrentUser();
+    // Use WidgetsBinding to ensure navigation happens after build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkCurrentUser();
+    });
   }
 
   // A felhasználó bejelentkezési állapotának ellenőrzése induláskor
   Future<void> _checkCurrentUser() async {
     final user = _auth.currentUser;
-    if (user != null) {
+    if (user != null && mounted) {
       // Ha a felhasználó már be van jelentkezve, átirányítjuk a UserScreen-re
       _navigateToUserScreen(user);
     }
@@ -53,11 +56,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // Átirányítás a UserScreen-re
   void _navigateToUserScreen(User user) {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (ctx) => UserScreen(userId: user.uid),
-      ),
-    );
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (ctx) => UserScreen(userId: user.uid),
+        ),
+      );
+    }
   }
 
   @override
@@ -145,28 +150,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (e) {
       _showErrorSnackBar('Error occurred: $e');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
