@@ -758,10 +758,10 @@ class _HomrScreenState extends State<HomrScreen> {
             top: size.height * 0.13,
             right: size.width * 0.05,
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              padding: EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: _isConnected
-                    ? Color.fromARGB(0, 109, 148, 111).withOpacity(0.7)
+                    ? Color.fromARGB(255, 49, 49, 49).withOpacity(0.7)
                     : Colors.red.withOpacity(0.7),
                 borderRadius: BorderRadius.circular(15),
               ),
@@ -770,7 +770,7 @@ class _HomrScreenState extends State<HomrScreen> {
                   Icon(
                     _isConnected ? Icons.wifi : Icons.wifi_off,
                     color: Colors.white,
-                    size: 16,
+                    size: 20,
                   ),
                 ],
               ),
