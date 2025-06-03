@@ -106,7 +106,7 @@ class _HomrScreenState extends State<HomrScreen> {
         currentLocation!.longitude!);
 
     double estimatedTimeInMinutes =
-        (distanceToDestination / averageBusSpeedKmph) * 60 * 1;
+        (distanceToDestination / averageBusSpeedKmph) * 60 * 2;
 
     return estimatedTimeInMinutes;
   }
