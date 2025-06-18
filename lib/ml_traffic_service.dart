@@ -359,13 +359,13 @@ class MLTrafficService {
   // Traffic level meghatározása
   TrafficLevel getTrafficLevel(int count) {
     if (count <= 20) {
-      return TrafficLevel('Alacsony', Colors.green, Colors.green.shade100);
+      return TrafficLevel('Low', Colors.green, Colors.green.shade100);
     } else if (count <= 40) {
-      return TrafficLevel('Közepes', Colors.orange, Colors.orange.shade100);
+      return TrafficLevel('Mid', Colors.orange, Colors.orange.shade100);
     } else if (count <= 60) {
-      return TrafficLevel('Magas', Colors.red, Colors.red.shade100);
+      return TrafficLevel('High', Colors.red, Colors.red.shade100);
     } else {
-      return TrafficLevel('Kritikus', Colors.red.shade800, Colors.red.shade200);
+      return TrafficLevel('Critical', Colors.red.shade800, Colors.red.shade200);
     }
   }
 

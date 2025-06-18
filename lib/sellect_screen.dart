@@ -767,7 +767,6 @@ class _SellectScreenState extends State<SellectScreen>
     );
   }
 
-  // Fixed navigation method to avoid stack overflow
   void _navigateToBus(String busNumber, String route) {
     // Use push instead of pushReplacement
     Navigator.of(context).push(

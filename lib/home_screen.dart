@@ -331,7 +331,7 @@ class _HomrScreenState extends State<HomrScreen> {
               Icon(Icons.people, color: Colors.white, size: 16),
               SizedBox(width: 8),
               Text(
-                'Most: ${_mlService.currentTraffic} utas',
+                'Now: ${_mlService.currentTraffic} Passanger',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 14,
@@ -365,7 +365,7 @@ class _HomrScreenState extends State<HomrScreen> {
               Icon(Icons.schedule, color: Colors.orange, size: 16),
               SizedBox(width: 8),
               Text(
-                'Következő óra: ${_mlService.prediction} utas',
+                'Next hour: ${_mlService.prediction} passanger',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 12,
@@ -397,7 +397,7 @@ class _HomrScreenState extends State<HomrScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Pontosság: ${_mlService.confidence}%',
+                'Conficence: ${_mlService.confidence}%',
                 style: TextStyle(
                   color: Colors.greenAccent,
                   fontSize: 10,
@@ -405,7 +405,7 @@ class _HomrScreenState extends State<HomrScreen> {
                 ),
               ),
               Text(
-                'Tanulási adatok: ${_mlService.historicalData.length}',
+                'Learning data: ${_mlService.historicalData.length}',
                 style: TextStyle(
                   color: Colors.grey.shade400,
                   fontSize: 10,

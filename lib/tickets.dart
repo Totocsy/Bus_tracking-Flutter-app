@@ -15,7 +15,7 @@ class BuyTicketsScreen extends StatefulWidget {
 
 class _BuyTicketsScreenState extends State<BuyTicketsScreen> {
   bool isNight = false;
-  String temperature = "18.7°";
+  String temperature = "Loading...";
   User? currentUser;
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
@@ -273,7 +273,7 @@ class _BuyTicketsScreenState extends State<BuyTicketsScreen> {
             style: TextStyle(color: Colors.white),
           ),
           content: Text(
-            'Do you want to buy a $ticketType ticket for \$${price.toStringAsFixed(2)}?',
+            'Do you want to buy a $ticketType ticket for ${price.toStringAsFixed(2)}?',
             style: TextStyle(color: Colors.white70),
           ),
           actions: [
