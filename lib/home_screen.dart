@@ -40,13 +40,20 @@ class _HomrScreenState extends State<HomrScreen> {
   late double destinationLng;
 
   LatLng _busPosition = LatLng(46.54245, 24.55747);
+  LatLng? _previousBusPosition;
   StreamSubscription? _streamSubscription;
   final String serverUrl = "https://bus-api-7ph1.onrender.com";
   DateTime? _lastUpdateTime;
+  DateTime? _previousUpdateTime;
 
-  static const double averageBusSpeedKmph = 53;
+  List<double> _speedHistory = [];
+  static const int maxSpeedHistoryLength = 5;
+  static const double minDistanceForSpeedCalc = 0.005;
+  static const double maxRealisticSpeed = 80.0;
+  static const double minRealisticSpeed = 0.0;
 
-  // ML Service instance
+  static const double averageBusSpeedKmph = 25;
+
   late MLTrafficService _mlService;
   bool _showMLCard = false;
 
@@ -56,14 +63,11 @@ class _HomrScreenState extends State<HomrScreen> {
     destinationLat = widget.destinationLat;
     destinationLng = widget.destinationLng;
 
-    // Initialize ML Service
     _mlService = MLTrafficService();
     _mlService.onTrafficUpdate =
         (currentTraffic, prediction, confidence, isLoading) {
       if (mounted) {
-        setState(() {
-          // UI will be updated automatically through the service getters
-        });
+        setState(() {});
       }
     };
 
@@ -97,7 +101,7 @@ class _HomrScreenState extends State<HomrScreen> {
   }
 
   double calculateEstimatedArrivalTime() {
-    if (polylineCoordinates.isEmpty) return 0.0;
+    if (currentLocation == null) return 0.0;
 
     double distanceToDestination = calculateDistance(
         _busPosition.latitude,
@@ -105,43 +109,55 @@ class _HomrScreenState extends State<HomrScreen> {
         currentLocation!.latitude!,
         currentLocation!.longitude!);
 
-    double estimatedTimeInMinutes =
-        (distanceToDestination / averageBusSpeedKmph) * 60 * 2;
+    double speedToUse = currentSpeed ?? averageBusSpeedKmph;
+    if (speedToUse < 5) speedToUse = averageBusSpeedKmph;
+
+    double estimatedTimeInMinutes = (distanceToDestination / speedToUse) * 60;
 
     return estimatedTimeInMinutes;
   }
 
-  double _calculateAverageBusSpeed() {
-    if (_lastUpdateTime == null || polylineCoordinates.length < 2) {
-      return averageBusSpeedKmph;
+  double? _calculateRealTimeBusSpeed() {
+    if (_previousBusPosition == null ||
+        _lastUpdateTime == null ||
+        _previousUpdateTime == null) {
+      return null;
     }
 
-    LatLng prevPosition = polylineCoordinates[polylineCoordinates.length - 2];
-    LatLng currentPosition =
-        polylineCoordinates[polylineCoordinates.length - 1];
+    double timeDiffInSeconds =
+        _lastUpdateTime!.difference(_previousUpdateTime!).inMilliseconds /
+            1000.0;
+
+    if (timeDiffInSeconds < 1.0) {
+      return currentSpeed;
+    }
 
     double distanceKm = calculateDistance(
-      prevPosition.latitude,
-      prevPosition.longitude,
-      currentPosition.latitude,
-      currentPosition.longitude,
+      _previousBusPosition!.latitude,
+      _previousBusPosition!.longitude,
+      _busPosition.latitude,
+      _busPosition.longitude,
     );
 
-    DateTime now = DateTime.now();
-    double timeDiffInSeconds =
-        now.difference(_lastUpdateTime!).inMilliseconds / 1000;
-
-    if (timeDiffInSeconds < 1) {
-      return averageBusSpeedKmph;
+    if (distanceKm < minDistanceForSpeedCalc) {
+      return currentSpeed;
     }
 
     double speedKmph = (distanceKm / timeDiffInSeconds) * 3600;
 
-    if (speedKmph < -1 || speedKmph > 85) {
-      return averageBusSpeedKmph;
+    if (speedKmph < minRealisticSpeed || speedKmph > maxRealisticSpeed) {
+      return currentSpeed;
     }
 
-    return speedKmph;
+    _speedHistory.add(speedKmph);
+    if (_speedHistory.length > maxSpeedHistoryLength) {
+      _speedHistory.removeAt(0);
+    }
+
+    double smoothedSpeed =
+        _speedHistory.reduce((a, b) => a + b) / _speedHistory.length;
+
+    return smoothedSpeed;
   }
 
   void getCurrentLocation() async {
@@ -159,7 +175,6 @@ class _HomrScreenState extends State<HomrScreen> {
         setState(() {
           currentLocation = newLoc;
           estimatedArrivalTime = calculateEstimatedArrivalTime();
-          currentSpeed = _calculateAverageBusSpeed();
         });
       }
     });
@@ -205,18 +220,31 @@ class _HomrScreenState extends State<HomrScreen> {
               final newPosition = LatLng(lat, lon);
 
               setState(() {
+                // Store previous position and time for speed calculation
+                _previousBusPosition = _busPosition;
+                _previousUpdateTime = _lastUpdateTime;
+
+                // Update current position and time
                 _busPosition = newPosition;
-                polylineCoordinates.add(newPosition);
                 _lastUpdateTime = DateTime.now();
 
-                if (polylineCoordinates.length > 500) {
+                // Add to polyline (keep last 100 points for performance)
+                polylineCoordinates.add(newPosition);
+                if (polylineCoordinates.length > 100) {
                   polylineCoordinates = polylineCoordinates
-                      .sublist(polylineCoordinates.length - 500);
+                      .sublist(polylineCoordinates.length - 100);
                 }
 
-                estimatedArrivalTime = calculateEstimatedArrivalTime();
-                currentSpeed = _calculateAverageBusSpeed();
+                // Calculate real-time speed
+                double? newSpeed = _calculateRealTimeBusSpeed();
+                if (newSpeed != null) {
+                  currentSpeed = newSpeed;
+                }
 
+                // Update arrival time with new speed
+                estimatedArrivalTime = calculateEstimatedArrivalTime();
+
+                // Follow bus if enabled
                 if (followBus) {
                   mapController.move(_busPosition, mapController.camera.zoom);
                 }
@@ -680,7 +708,7 @@ class _HomrScreenState extends State<HomrScreen> {
                         Padding(
                           padding: const EdgeInsets.only(left: 150.0, top: 5),
                           child: Text(
-                            'Bus Speed: ${currentSpeed!.toStringAsFixed(2)} km/h',
+                            'Bus Speed: ${currentSpeed!.toStringAsFixed(1)} km/h',
                             style: TextStyle(
                               shadows: <Shadow>[
                                 Shadow(
